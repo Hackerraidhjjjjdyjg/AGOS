@@ -1,0 +1,160 @@
+# AGOS Kubernetes — PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agos-postgres
+  namespace: agos
+spec:
+  serviceName: agos-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agos
+      component: postgres
+  template:
+    metadata:
+      labels:
+        app: agos
+        component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: agos_db
+            - name: POSTGRES_USER
+              value: agos
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agos-secrets
+                  key: postgres-password
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: agos-db-init
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agos-postgres
+  namespace: agos
+spec:
+  selector:
+    app: agos
+    component: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None
+---
+# Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agos-redis
+  namespace: agos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agos
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: agos
+        component: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--appendonly", "yes", "--requirepass", "$(REDIS_PASSWORD)"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agos-secrets
+                  key: redis-password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agos-redis
+  namespace: agos
+spec:
+  selector:
+    app: agos
+    component: redis
+  ports:
+    - port: 6379
+---
+# NATS
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agos-nats
+  namespace: agos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agos
+      component: nats
+  template:
+    metadata:
+      labels:
+        app: agos
+        component: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2-alpine
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+          args: ["--jetstream", "--store_dir", "/data/jetstream"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agos-nats
+  namespace: agos
+spec:
+  selector:
+    app: agos
+    component: nats
+  ports:
+    - name: client
+      port: 4222
+    - name: monitoring
+      port: 8222

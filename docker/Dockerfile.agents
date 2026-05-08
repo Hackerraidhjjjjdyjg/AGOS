@@ -1,0 +1,19 @@
+# AGOS Python Agents — Dockerfile
+FROM python:3.11-slim
+
+RUN groupadd -r agos && useradd -r -g agos agos
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY agents/ ./agents/
+COPY memory/ ./memory/
+COPY config/ ./config/
+
+RUN mkdir -p /app/data && chown -R agos:agos /app
+
+USER agos
+
+CMD ["python", "-m", "agents.runtime"]

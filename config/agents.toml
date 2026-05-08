@@ -1,0 +1,54 @@
+# AGOS Agent Configuration
+# Defines agent types, capabilities, and resource allocation.
+
+[orchestrator]
+name = "Orchestrator"
+model = "llama3"
+priority = 0
+token_budget = 8192
+capabilities = ["decompose", "delegate", "aggregate", "monitor"]
+description = "Master agent that decomposes user intents into subtasks"
+
+[system_agent]
+name = "System Agent"
+model = "phi3:mini"
+priority = 2
+token_budget = 4096
+capabilities = ["open_app", "set_volume", "say", "play_music", "screenshot", "get_system_info", "send_notification"]
+description = "Controls macOS system functions via approved tools"
+
+[research_agent]
+name = "Research Agent"
+model = "llama3"
+priority = 3
+token_budget = 16384
+capabilities = ["search_web", "read_file", "write_file"]
+description = "Deep research via web search and document analysis"
+
+[code_agent]
+name = "Code Agent"
+model = "llama3"
+priority = 3
+token_budget = 16384
+capabilities = ["read_file", "write_file"]
+description = "Code generation, review, and refactoring"
+
+# --- Runtime Configuration ---
+
+[runtime]
+max_concurrent_agents = 8
+agent_timeout_seconds = 300
+heartbeat_interval_seconds = 10
+log_level = "info"
+
+[runtime.nats]
+url = "nats://localhost:4222"
+topic_prefix = "agos.agents"
+
+[runtime.grpc]
+host = "localhost"
+port = 50051
+
+[runtime.ollama]
+url = "http://localhost:11434"
+default_model = "llama3"

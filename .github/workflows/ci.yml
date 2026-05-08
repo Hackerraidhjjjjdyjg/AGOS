@@ -1,0 +1,136 @@
+# AGOS — CI/CD Pipeline
+# Builds and tests all three language targets on every push/PR.
+
+name: AGOS CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  GO_VERSION: "1.22"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─── Rust Kernel ────────────────────────────────────────────────────
+  rust-kernel:
+    name: Rust Kernel
+    runs-on: macos-14  # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-kernel/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-kernel/Cargo.lock') }}
+      
+      - name: Build
+        run: cargo build --release
+        working-directory: rust-kernel
+      
+      - name: Test
+        run: cargo test
+        working-directory: rust-kernel
+      
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: libagos_kernel
+          path: rust-kernel/target/release/libagos_kernel.dylib
+
+  # ─── Go Orchestrator ────────────────────────────────────────────────
+  go-orchestrator:
+    name: Go Orchestrator
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      
+      - name: Cache Go
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('go-orchestrator/go.sum') }}
+      
+      - name: Build
+        run: go build -o agosd ./cmd/agosd/
+        working-directory: go-orchestrator
+      
+      - name: Test
+        run: go test ./...
+        working-directory: go-orchestrator
+      
+      - name: Upload daemon
+        uses: actions/upload-artifact@v4
+        with:
+          name: agosd
+          path: go-orchestrator/agosd
+
+  # ─── Python Agents ─────────────────────────────────────────────────
+  python-agents:
+    name: Python Agents
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install deps
+        run: pip install -r requirements.txt
+      
+      - name: Lint
+        run: python -m py_compile agents/base.py agents/orchestrator.py agents/system_agent.py
+      
+      - name: Test
+        run: python -m pytest tests/agents/ -v
+        continue-on-error: true
+
+  # ─── Package DMG ───────────────────────────────────────────────────
+  package:
+    name: Package DMG
+    runs-on: macos-14
+    needs: [rust-kernel, go-orchestrator, python-agents]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install create-dmg
+        run: brew install create-dmg
+      
+      - name: Download kernel
+        uses: actions/download-artifact@v4
+        with:
+          name: libagos_kernel
+          path: build/
+      
+      - name: Download daemon
+        uses: actions/download-artifact@v4
+        with:
+          name: agosd
+          path: build/
+      
+      - name: Package
+        run: bash scripts/package-dmg.sh
+      
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: AGOS-Installer
+          path: build/AGOS-*.dmg

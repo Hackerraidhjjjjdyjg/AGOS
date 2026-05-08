@@ -1,0 +1,15 @@
+.env
+.env.*
+*.DS_Store
+*.log
+/build/
+/target/
+*.dylib
+agosd
+agosd.log
+servant.log
+web.log
+__pycache__/
+*.pyc
+.memory/
+node_modules/

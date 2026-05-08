@@ -1,0 +1,26 @@
+# AGOS Go Orchestrator — Production Dockerfile
+# Multi-stage build for minimal image size
+
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+COPY go-orchestrator/ .
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o agosd ./cmd/agosd/
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+RUN adduser -D -g '' agos
+
+WORKDIR /app
+COPY --from=builder /build/agosd .
+COPY config/ ./config/
+
+USER agos
+EXPOSE 50051 8765
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8765/health || exit 1
+
+ENTRYPOINT ["./agosd"]
+CMD ["--port", "50051", "--ws-port", "8765", "--manifest", "./config/manifest.json"]

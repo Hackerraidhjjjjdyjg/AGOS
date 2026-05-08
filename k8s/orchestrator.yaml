@@ -1,0 +1,120 @@
+# AGOS Kubernetes — Orchestrator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agos-orchestrator
+  namespace: agos
+  labels:
+    app: agos
+    component: orchestrator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agos
+      component: orchestrator
+  template:
+    metadata:
+      labels:
+        app: agos
+        component: orchestrator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8765"
+    spec:
+      serviceAccountName: agos
+      containers:
+        - name: orchestrator
+          image: ghcr.io/agos/orchestrator:latest
+          ports:
+            - name: grpc
+              containerPort: 50051
+            - name: http
+              containerPort: 8765
+          env:
+            - name: POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agos-secrets
+                  key: postgres-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agos-secrets
+                  key: redis-url
+            - name: NATS_URL
+              value: nats://agos-nats:4222
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agos-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8765
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agos-orchestrator
+  namespace: agos
+spec:
+  selector:
+    app: agos
+    component: orchestrator
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+    - name: http
+      port: 8765
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agos-orchestrator-hpa
+  namespace: agos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agos-orchestrator
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agos
+  labels:
+    app: agos
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agos
+  namespace: agos

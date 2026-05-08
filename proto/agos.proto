@@ -1,0 +1,133 @@
+// AGOS gRPC Service Definitions
+syntax = "proto3";
+
+package agos.v1;
+option go_package = "github.com/agos/proto/v1";
+
+// ─── Agent Service ──────────────────────────────────────────
+service AgentService {
+  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse);
+  rpc GetTaskStatus(GetTaskStatusRequest) returns (TaskStatusResponse);
+  rpc StreamTaskEvents(StreamTaskEventsRequest) returns (stream TaskEvent);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+}
+
+// ─── Auth Service ───────────────────────────────────────────
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (LoginResponse);
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+}
+
+// ─── Messages ───────────────────────────────────────────────
+message SubmitTaskRequest {
+  string intent = 1;
+  int32 priority = 2;
+  string agent_id = 3;   // Optional: route to specific agent
+  map<string, string> metadata = 4;
+}
+
+message SubmitTaskResponse {
+  string task_id = 1;
+  string status = 2;
+  int64 estimated_ms = 3;
+}
+
+message GetTaskStatusRequest {
+  string task_id = 1;
+}
+
+message TaskStatusResponse {
+  string task_id = 1;
+  string status = 2;     // queued, running, completed, failed
+  string result = 3;
+  string error = 4;
+  int32 tokens_used = 5;
+  int64 latency_ms = 6;
+}
+
+message StreamTaskEventsRequest {
+  string task_id = 1;
+}
+
+message TaskEvent {
+  string task_id = 1;
+  string event_type = 2; // started, tool_call, progress, completed, error
+  string payload = 3;    // JSON
+  int64 timestamp = 4;
+}
+
+message ListAgentsRequest {
+  string status = 1;     // active, idle, all
+}
+
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
+message AgentInfo {
+  string id = 1;
+  string name = 2;
+  string model = 3;
+  string status = 4;
+  int32 priority = 5;
+  repeated string capabilities = 6;
+  int64 tasks_completed = 7;
+}
+
+message RegisterAgentRequest {
+  string name = 1;
+  string model = 2;
+  int32 priority = 3;
+  repeated string capabilities = 4;
+}
+
+message RegisterAgentResponse {
+  string agent_id = 1;
+  string token = 2;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_at = 3;
+  UserInfo user = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message UserInfo {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  string role = 4;
+  string tier = 5;
+}
+
+message CreateAPIKeyRequest {
+  string name = 1;
+  repeated string scopes = 2;
+  int32 rate_limit_rpm = 3;
+}
+
+message CreateAPIKeyResponse {
+  string key = 1;
+  string key_prefix = 2;
+}
+
+message RevokeAPIKeyRequest {
+  string key_id = 1;
+}
+
+message RevokeAPIKeyResponse {
+  bool success = 1;
+}

@@ -1,0 +1,192 @@
+{
+    "version": "2.0",
+    "policy": "strict_allowlist",
+    "description": "AGOS Constitutional Security Manifest \u2014 defines what agents can and cannot do",
+    "audit": {
+        "enabled": true,
+        "log_all_decisions": true,
+        "max_log_entries": 10000
+    },
+    "allowed_tools": {
+        "open_app": {
+            "risk_level": "medium",
+            "description": "Launch a macOS application by name",
+            "parameters": [
+                "app_name"
+            ],
+            "argument_constraints": {
+                "app_name": {
+                    "pattern": "^[a-zA-Z0-9 .\\-]+$",
+                    "max_length": 128
+                }
+            }
+        },
+        "get_active_apps": {
+            "risk_level": "low",
+            "description": "List currently running applications",
+            "parameters": []
+        },
+        "set_volume": {
+            "risk_level": "low",
+            "description": "Set system volume level",
+            "parameters": [
+                "level"
+            ],
+            "argument_constraints": {
+                "level": {
+                    "min": 0,
+                    "max": 100
+                }
+            }
+        },
+        "say": {
+            "risk_level": "low",
+            "description": "Text-to-speech via macOS",
+            "parameters": [
+                "text",
+                "voice"
+            ],
+            "argument_constraints": {
+                "text": {
+                    "max_length": 1024
+                }
+            }
+        },
+        "search_web": {
+            "risk_level": "medium",
+            "description": "Search the web via browser",
+            "parameters": [
+                "query"
+            ],
+            "argument_constraints": {
+                "query": {
+                    "max_length": 512
+                }
+            }
+        },
+        "read_file": {
+            "risk_level": "medium",
+            "description": "Read contents of a text file",
+            "parameters": [
+                "path"
+            ],
+            "argument_constraints": {
+                "path": {
+                    "max_length": 512
+                }
+            }
+        },
+        "write_file": {
+            "risk_level": "high",
+            "description": "Write content to a text file",
+            "parameters": [
+                "path",
+                "content"
+            ],
+            "argument_constraints": {
+                "path": {
+                    "max_length": 512
+                },
+                "content": {
+                    "max_length": 65536
+                }
+            }
+        },
+        "play_music": {
+            "risk_level": "low",
+            "description": "Play music via Apple Music",
+            "parameters": [
+                "query",
+                "type"
+            ],
+            "argument_constraints": {
+                "query": {
+                    "max_length": 256
+                }
+            }
+        },
+        "screenshot": {
+            "risk_level": "medium",
+            "description": "Capture a screenshot of the screen",
+            "parameters": [
+                "output_path"
+            ],
+            "argument_constraints": {}
+        },
+        "get_clipboard": {
+            "risk_level": "low",
+            "description": "Read the clipboard contents",
+            "parameters": []
+        },
+        "set_clipboard": {
+            "risk_level": "medium",
+            "description": "Set clipboard contents",
+            "parameters": [
+                "text"
+            ],
+            "argument_constraints": {
+                "text": {
+                    "max_length": 65536
+                }
+            }
+        },
+        "get_system_info": {
+            "risk_level": "low",
+            "description": "Get macOS system information",
+            "parameters": []
+        },
+        "send_notification": {
+            "risk_level": "low",
+            "description": "Send a macOS notification",
+            "parameters": [
+                "title",
+                "message"
+            ],
+            "argument_constraints": {
+                "title": {
+                    "max_length": 128
+                },
+                "message": {
+                    "max_length": 512
+                }
+            }
+        },
+        "orchestrator": {
+            "risk_level": "low",
+            "description": "Internal AGOS task routing",
+            "parameters": [
+                "intent"
+            ],
+            "argument_constraints": {
+                "intent": {
+                    "pattern": ".*"
+                }
+            }
+        }
+    },
+    "blocked_tools": [
+        "exec_shell",
+        "sudo",
+        "delete_file",
+        "upload_file",
+        "download_file",
+        "modify_permissions",
+        "kill_process",
+        "network_scan",
+        "keylog",
+        "screen_record"
+    ],
+    "escalation": {
+        "high_risk_requires_confirmation": true,
+        "critical_risk_blocked": true,
+        "notify_on_block": true
+    },
+    "agents": {
+        "System": {
+            "model": "llama-3.1-8b-instant",
+            "security_score": 1.0,
+            "registered_at": "Fri Apr 17 11:19:26 2026",
+            "status": "trusted"
+        }
+    }
+}
