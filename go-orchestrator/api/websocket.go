@@ -8,45 +8,73 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 // WSEvent represents a real-time event sent to clients.
 type WSEvent struct {
-	Type      string      `json:"type"`      // task_update, agent_status, metric, error
+	Type      string      `json:"type"` // task_update, agent_status, metric, error
 	TaskID    string      `json:"task_id,omitempty"`
 	AgentID   string      `json:"agent_id,omitempty"`
 	Payload   interface{} `json:"payload"`
 	Timestamp int64       `json:"timestamp"`
 }
 
+// wsClient wraps a connection with a write mutex. The gorilla/websocket
+// library does not permit concurrent writes to a single connection, so every
+// write must be serialized through send.
+type wsClient struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *wsClient) send(data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(websocket.TextMessage, data)
+}
+
 // WSHub manages WebSocket connections.
 type WSHub struct {
-	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	mu       sync.RWMutex
+	clients  map[*wsClient]bool
+	upgrader websocket.Upgrader
 }
 
 // NewWSHub creates a new WebSocket hub.
 func NewWSHub() *WSHub {
 	return &WSHub{
-		clients: make(map[*websocket.Conn]bool),
+		clients: make(map[*wsClient]bool),
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  4096,
+			WriteBufferSize: 4096,
+			// Origin checks are enforced by the HTTP layer (CORS middleware /
+			// reverse proxy). Allowing all origins here keeps the upgrade from
+			// rejecting same-origin browser clients during local development.
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
 	}
 }
 
-// Register adds a WebSocket connection.
-func (h *WSHub) Register(ws *websocket.Conn) {
+// register adds a WebSocket connection.
+func (h *WSHub) register(c *wsClient) {
 	h.mu.Lock()
-	h.clients[ws] = true
+	h.clients[c] = true
+	total := len(h.clients)
 	h.mu.Unlock()
-	log.Printf("[WS] Client connected: %s (total: %d)", ws.RemoteAddr(), len(h.clients))
+	log.Printf("[WS] Client connected: %s (total: %d)", c.conn.RemoteAddr(), total)
 }
 
-// Unregister removes a WebSocket connection.
-func (h *WSHub) Unregister(ws *websocket.Conn) {
+// unregister removes a WebSocket connection and closes it.
+func (h *WSHub) unregister(c *wsClient) {
 	h.mu.Lock()
-	delete(h.clients, ws)
+	if _, ok := h.clients[c]; ok {
+		delete(h.clients, c)
+	}
+	total := len(h.clients)
 	h.mu.Unlock()
-	log.Printf("[WS] Client disconnected: %s (total: %d)", ws.RemoteAddr(), len(h.clients))
+	c.conn.Close()
+	log.Printf("[WS] Client disconnected: %s (total: %d)", c.conn.RemoteAddr(), total)
 }
 
 // Broadcast sends an event to all connected clients.
@@ -54,49 +82,60 @@ func (h *WSHub) Broadcast(event WSEvent) {
 	event.Timestamp = time.Now().UnixMilli()
 	data, err := json.Marshal(event)
 	if err != nil {
+		log.Printf("[WS] Marshal error: %v", err)
 		return
 	}
 
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	targets := make([]*wsClient, 0, len(h.clients))
+	for c := range h.clients {
+		targets = append(targets, c)
+	}
+	h.mu.RUnlock()
 
-	for ws := range h.clients {
-		if _, err := ws.Write(data); err != nil {
+	for _, c := range targets {
+		if err := c.send(data); err != nil {
 			log.Printf("[WS] Write error: %v", err)
-			go h.Unregister(ws)
+			go h.unregister(c)
 		}
 	}
 }
 
-// Handler returns an http.Handler for WebSocket connections.
-func (h *WSHub) Handler() http.Handler {
-	return websocket.Handler(func(ws *websocket.Conn) {
-		h.Register(ws)
-		defer h.Unregister(ws)
-
-		// Send welcome
-		welcome := WSEvent{
-			Type:    "connected",
-			Payload: map[string]string{"message": "AGOS real-time stream connected"},
+// Handler returns an http.HandlerFunc that upgrades requests to WebSocket.
+func (h *WSHub) Handler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := h.upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("[WS] Upgrade failed: %v", err)
+			return
 		}
-		data, _ := json.Marshal(welcome)
-		ws.Write(data)
+		client := &wsClient{conn: conn}
+		h.register(client)
+		defer h.unregister(client)
 
-		// Keep connection alive + read client messages
-		buf := make([]byte, 4096)
+		// Send welcome message.
+		welcome := WSEvent{
+			Type:      "connected",
+			Payload:   map[string]string{"message": "AGOS real-time stream connected"},
+			Timestamp: time.Now().UnixMilli(),
+		}
+		if data, err := json.Marshal(welcome); err == nil {
+			_ = client.send(data)
+		}
+
+		// Keep connection alive + read client messages.
 		for {
-			n, err := ws.Read(buf)
+			_, payload, err := conn.ReadMessage()
 			if err != nil {
 				break
 			}
-			// Handle client messages (e.g., subscribe to specific task)
 			var msg map[string]string
-			if err := json.Unmarshal(buf[:n], &msg); err == nil {
+			if err := json.Unmarshal(payload, &msg); err == nil {
 				log.Printf("[WS] Received: %v", msg)
 			}
 		}
-	})
+	}
 }
 
-// Global hub instance
+// Global hub instance.
 var Hub = NewWSHub()

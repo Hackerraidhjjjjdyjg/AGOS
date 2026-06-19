@@ -6,11 +6,14 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User represents a registered user.
@@ -80,17 +83,26 @@ func (a *AuthService) GenerateAPIKey() (plainKey string, keyHash string, prefix 
 	return plainKey, keyHash, prefix
 }
 
-// ValidateAPIKeyHash validates a key against its hash.
+// ValidateAPIKeyHash validates a key against its stored SHA-256 hash using a
+// constant-time comparison to avoid leaking the hash via timing.
 func (a *AuthService) ValidateAPIKeyHash(plainKey string, storedHash string) bool {
 	hash := sha256.Sum256([]byte(plainKey))
 	computedHash := hex.EncodeToString(hash[:])
-	return computedHash == storedHash
+	return subtle.ConstantTimeCompare([]byte(computedHash), []byte(storedHash)) == 1
 }
 
-// HashPassword hashes a password using SHA-256 (use bcrypt in production).
-func (a *AuthService) HashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+// HashPassword hashes a password using bcrypt (DefaultCost).
+func (a *AuthService) HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash password: %w", err)
+	}
+	return string(hash), nil
+}
+
+// VerifyPassword reports whether password matches the stored bcrypt hash.
+func (a *AuthService) VerifyPassword(password, storedHash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)) == nil
 }
 
 // CheckPermission verifies if a role has access to an action.

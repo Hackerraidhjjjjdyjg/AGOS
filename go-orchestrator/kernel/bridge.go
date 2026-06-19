@@ -31,22 +31,51 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"unsafe"
 )
 
 var (
 	swapDir = filepath.Join(os.Getenv("HOME"), ".agos", "swap")
-	// MASTER_KEY for AES-256-GCM. In production, this would come from KMS/Vault.
-	masterKey = []byte("BRUTAL_AGOS_SOVEREIGN_KEY_32BYTE") 
+
+	masterKeyOnce sync.Once
+	masterKey     []byte
+	masterKeyErr  error
 )
 
 func init() {
 	os.MkdirAll(swapDir, 0700)
+}
+
+// loadMasterKey resolves the AES-256 master key from the environment. The key
+// must be supplied via AGOS_MASTER_KEY as 64 hex characters (32 bytes). It is
+// never hardcoded; in production this should be sourced from a KMS/Vault and
+// injected into the environment. The key is loaded once and cached.
+func loadMasterKey() ([]byte, error) {
+	masterKeyOnce.Do(func() {
+		raw := os.Getenv("AGOS_MASTER_KEY")
+		if raw == "" {
+			masterKeyErr = fmt.Errorf("AGOS_MASTER_KEY is not set (expected 64 hex chars for a 32-byte AES-256 key)")
+			return
+		}
+		key, err := hex.DecodeString(raw)
+		if err != nil {
+			masterKeyErr = fmt.Errorf("AGOS_MASTER_KEY is not valid hex: %w", err)
+			return
+		}
+		if len(key) != 32 {
+			masterKeyErr = fmt.Errorf("AGOS_MASTER_KEY must decode to 32 bytes for AES-256, got %d", len(key))
+			return
+		}
+		masterKey = key
+	})
+	return masterKey, masterKeyErr
 }
 
 // Init initializes the Rust kernel with a capacity and manifest.
@@ -194,7 +223,11 @@ func GetVersion() string {
 // --- Internal Security Helpers ---
 
 func encrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(masterKey)
+	key, err := loadMasterKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +243,11 @@ func encrypt(data []byte) ([]byte, error) {
 }
 
 func decrypt(data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(masterKey)
+	key, err := loadMasterKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ package api
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+)
+
+// ─── Admin credentials (loaded from environment, never hardcoded) ─────────
+
+var (
+	adminEmail        = os.Getenv("AGOS_ADMIN_EMAIL")
+	adminPasswordHash = os.Getenv("AGOS_ADMIN_PASSWORD_HASH") // bcrypt hash
 )
 
 // ─── JWT (simplified, production should use github.com/golang-jwt/jwt) ──────
@@ -265,9 +275,20 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Validate against PostgreSQL users table
-	// For now, accept admin@agos.dev / admin
-	if req.Email != "admin@agos.dev" || req.Password != "admin" {
+	// Admin credentials come from the environment (AGOS_ADMIN_EMAIL +
+	// AGOS_ADMIN_PASSWORD_HASH). If unconfigured, admin login is disabled
+	// rather than falling back to hardcoded defaults.
+	if adminEmail == "" || adminPasswordHash == "" {
+		logAudit("unknown", "login", "auth", "denied")
+		http.Error(w, `{"error":"admin login not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	// Constant-time email comparison + bcrypt password verification to avoid
+	// user-enumeration and timing side channels.
+	emailOK := subtle.ConstantTimeCompare([]byte(req.Email), []byte(adminEmail)) == 1
+	passOK := bcrypt.CompareHashAndPassword([]byte(adminPasswordHash), []byte(req.Password)) == nil
+	if !emailOK || !passOK {
 		logAudit("unknown", "login", "auth", "denied")
 		http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
 		return
@@ -405,6 +426,11 @@ func NewServer(port int) *http.Server {
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /metrics", handleMetrics)
 	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
+
+	// Real-time event stream. Browser WebSocket clients cannot set custom
+	// Authorization headers, so production deployments should authenticate the
+	// upgrade via a short-lived token query parameter behind a reverse proxy.
+	mux.HandleFunc("GET /ws", Hub.Handler())
 
 	// Protected endpoints
 	mux.HandleFunc("POST /api/v1/tasks", rateLimitMiddleware(rl, authMiddleware(handleSubmitTask)))
