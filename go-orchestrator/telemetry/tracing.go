@@ -3,8 +3,11 @@ package telemetry
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -22,9 +25,10 @@ type Span struct {
 	Tags      map[string]string `json:"tags"`
 }
 
-// Tracer provides distributed tracing.
+// Tracer provides distributed tracing. It is safe for concurrent use.
 type Tracer struct {
 	service string
+	mu      sync.Mutex
 	spans   []Span
 }
 
@@ -49,7 +53,9 @@ func (t *Tracer) StartSpan(ctx context.Context, name string) (*Span, context.Con
 		Status:    "ok",
 		Tags:      make(map[string]string),
 	}
+	t.mu.Lock()
 	t.spans = append(t.spans, *span)
+	t.mu.Unlock()
 	return span, ctx
 }
 
@@ -68,13 +74,17 @@ func SetError(span *Span, err error) {
 	span.Tags["error"] = err.Error()
 }
 
+// generateID returns a random hex-encoded 16-character ID using crypto/rand.
+// A time-based fallback is used only if the system RNG is unavailable so that
+// tracing never blocks the request path.
 func generateID() string {
 	b := make([]byte, 8)
-	// Simple ID generation — production uses crypto/rand
-	for i := range b {
-		b[i] = byte(time.Now().UnixNano() >> (i * 8))
+	if _, err := rand.Read(b); err != nil {
+		for i := range b {
+			b[i] = byte(time.Now().UnixNano() >> (i * 8))
+		}
 	}
-	return string(b)
+	return hex.EncodeToString(b)
 }
 
 // Predefined span names

@@ -17,6 +17,16 @@ type Config struct {
 	MaxConns int
 }
 
+func getenvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// DefaultConfig builds the Postgres config from the environment. The password
+// is read from AGOS_DB_PASSWORD (falling back to POSTGRES_PASSWORD) and is
+// never hardcoded; everything else has a sensible local-dev default.
 func DefaultConfig() Config {
 	port := 5432
 	if p := os.Getenv("AGOS_DB_PORT"); p != "" {
@@ -25,21 +35,14 @@ func DefaultConfig() Config {
 		}
 	}
 	return Config{
-		Host:     envOrDefault("AGOS_DB_HOST", "localhost"),
+		Host:     getenvDefault("AGOS_DB_HOST", "localhost"),
 		Port:     port,
-		User:     envOrDefault("AGOS_DB_USER", "agos"),
-		Password: os.Getenv("AGOS_DB_PASSWORD"),
-		DBName:   envOrDefault("AGOS_DB_NAME", "agos_db"),
-		SSLMode:  envOrDefault("AGOS_DB_SSLMODE", "disable"),
+		User:     getenvDefault("AGOS_DB_USER", "agos"),
+		Password: getenvDefault("AGOS_DB_PASSWORD", os.Getenv("POSTGRES_PASSWORD")),
+		DBName:   getenvDefault("AGOS_DB_NAME", "agos_db"),
+		SSLMode:  getenvDefault("AGOS_DB_SSLMODE", "disable"),
 		MaxConns: 20,
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 type User struct {
