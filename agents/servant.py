@@ -4,8 +4,9 @@ import json
 import time
 import os
 import sys
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Security
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 
@@ -20,6 +21,18 @@ logger = logging.getLogger("agos.servant")
 
 app = FastAPI(title="AGOS A2A Servant")
 orchestrator = Orchestrator()
+security = HTTPBearer()
+
+A2A_TOKEN = os.environ.get("AGOS_A2A_TOKEN", "")
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """Verify bearer token for A2A endpoints."""
+    if not A2A_TOKEN:
+        raise HTTPException(status_code=503, detail="A2A authentication not configured (set AGOS_A2A_TOKEN)")
+    if credentials.credentials != A2A_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid A2A token")
+    return credentials.credentials
 
 # --- A2A Agent Card (Section 16 Discovery) ---
 AGENT_CARD = {
@@ -51,7 +64,7 @@ class JsonRpcRequest(BaseModel):
     id: Optional[int] = None
 
 @app.post("/a2a")
-async def handle_a2a(request: JsonRpcRequest):
+async def handle_a2a(request: JsonRpcRequest, token: str = Security(verify_token)):
     logger.info(f"A2A Request: {request.method}")
     
     if request.method == "submit_task":
@@ -85,7 +98,7 @@ async def handle_a2a(request: JsonRpcRequest):
 
 # --- SSE Streaming (Server-Sent Events) ---
 @app.get("/a2a/stream/{task_id}")
-async def stream_task(task_id: str, intent: str):
+async def stream_task(task_id: str, intent: str, token: str = Security(verify_token)):
     async def event_generator():
         yield f"data: {json.dumps({'event': 'started', 'task_id': task_id})}\n\n"
         
@@ -105,4 +118,5 @@ async def stream_task(task_id: str, intent: str):
 if __name__ == "__main__":
     import uvicorn
     # Start on 50051 to match the previously planned Go gRPC port
-    uvicorn.run(app, host="0.0.0.0", port=50051)
+    bind_host = os.environ.get("AGOS_SERVANT_HOST", "127.0.0.1")
+    uvicorn.run(app, host=bind_host, port=50051)

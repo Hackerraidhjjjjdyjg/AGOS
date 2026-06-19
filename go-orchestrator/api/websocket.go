@@ -69,32 +69,41 @@ func (h *WSHub) Broadcast(event WSEvent) {
 }
 
 // Handler returns an http.Handler for WebSocket connections.
+// Requires a valid token as a query parameter: ?token=<jwt>
 func (h *WSHub) Handler() http.Handler {
-	return websocket.Handler(func(ws *websocket.Conn) {
-		h.Register(ws)
-		defer h.Unregister(ws)
-
-		// Send welcome
-		welcome := WSEvent{
-			Type:    "connected",
-			Payload: map[string]string{"message": "AGOS real-time stream connected"},
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, `{"error":"missing token query parameter"}`, http.StatusUnauthorized)
+			return
 		}
-		data, _ := json.Marshal(welcome)
-		ws.Write(data)
-
-		// Keep connection alive + read client messages
-		buf := make([]byte, 4096)
-		for {
-			n, err := ws.Read(buf)
-			if err != nil {
-				break
-			}
-			// Handle client messages (e.g., subscribe to specific task)
-			var msg map[string]string
-			if err := json.Unmarshal(buf[:n], &msg); err == nil {
-				log.Printf("[WS] Received: %v", msg)
-			}
+		if _, valid := validateToken(token); !valid {
+			http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+			return
 		}
+		websocket.Handler(func(ws *websocket.Conn) {
+			h.Register(ws)
+			defer h.Unregister(ws)
+
+			welcome := WSEvent{
+				Type:    "connected",
+				Payload: map[string]string{"message": "AGOS real-time stream connected"},
+			}
+			data, _ := json.Marshal(welcome)
+			ws.Write(data)
+
+			buf := make([]byte, 4096)
+			for {
+				n, err := ws.Read(buf)
+				if err != nil {
+					break
+				}
+				var msg map[string]string
+				if err := json.Unmarshal(buf[:n], &msg); err == nil {
+					log.Printf("[WS] Received: %v", msg)
+				}
+			}
+		}).ServeHTTP(w, r)
 	})
 }
 

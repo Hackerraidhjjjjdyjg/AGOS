@@ -6,6 +6,7 @@ Controls macOS system functions (apps, volume, music, screenshots) via AppleScri
 import asyncio
 import json
 import logging
+import re
 import subprocess
 from typing import Optional
 
@@ -167,16 +168,16 @@ class SystemAgent(BaseAgent):
     # --- Tool Implementations ---
 
     async def _tool_open_app(self, app_name: str) -> str:
-        # PRINCIPAL ENGINEERING: Stability delay to handle OS context-switching (Section 1)
+        safe_name = self._validate_app_name(app_name)
         script = f'''
-        tell application "{app_name}" to activate
+        tell application "{safe_name}" to activate
         delay 0.5
-        tell application "System Events" to return exists (process "{app_name}")
+        tell application "System Events" to return exists (process "{safe_name}")
         '''
         res = await self._run_osascript(script)
         if res == "true":
-            return f"Opened {app_name} (Verified)"
-        return f"Signaled {app_name} to open"
+            return f"Opened {safe_name} (Verified)"
+        return f"Signaled {safe_name} to open"
 
     def _tool_get_active_apps(self) -> str:
         return self._run_osascript(
@@ -189,12 +190,14 @@ class SystemAgent(BaseAgent):
         return await self._run_osascript(f"set volume output volume {level}")
 
     async def _tool_say(self, text: str) -> str:
-        return await self._run_osascript(f'say "{text}"')
+        safe_text = self._sanitize_applescript_string(text[:1024])
+        return await self._run_osascript(f'say "{safe_text}"')
 
     async def _tool_search_web(self, query: str) -> str:
         import urllib.parse
         url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
-        return await self._run_osascript(f'tell application "Safari" to open location "{url}"')
+        safe_url = self._sanitize_applescript_string(url)
+        return await self._run_osascript(f'tell application "Safari" to open location "{safe_url}"')
 
     async def _tool_screenshot(self, output_path: str = "/tmp/agos_screenshot.png") -> str:
         # screencapture is a shell command
@@ -213,8 +216,10 @@ class SystemAgent(BaseAgent):
         return json.dumps(info)
 
     async def _tool_send_notification(self, title: str, message: str) -> str:
+        safe_title = self._sanitize_applescript_string(title[:128])
+        safe_message = self._sanitize_applescript_string(message[:512])
         return await self._run_osascript(
-            f'display notification "{message}" with title "{title}"'
+            f'display notification "{safe_message}" with title "{safe_title}"'
         )
 
     async def _tool_get_clipboard(self) -> str:
@@ -231,6 +236,20 @@ class SystemAgent(BaseAgent):
         return await self._run_osascript('tell application "Music" to play')
 
     # --- Internal ---
+
+    @staticmethod
+    def _sanitize_applescript_string(value: str) -> str:
+        """Escape a value for safe interpolation into AppleScript strings."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    @staticmethod
+    def _validate_app_name(name: str) -> str:
+        """Validate that an app name contains only safe characters."""
+        if not re.match(r'^[a-zA-Z0-9 .\-]+$', name):
+            raise ValueError(f"Invalid app name: {name!r}")
+        if len(name) > 128:
+            raise ValueError("App name too long")
+        return name
 
     async def _run_osascript(self, script: str) -> str:
         """Execute an AppleScript command asynchronously."""

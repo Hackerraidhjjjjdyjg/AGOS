@@ -101,14 +101,9 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 
-		// API Key auth
+		// API Key auth — requires database lookup (not yet implemented)
 		if strings.HasPrefix(auth, "Bearer agos_sk_") {
-			apiKey := strings.TrimPrefix(auth, "Bearer ")
-			hash := sha256.Sum256([]byte(apiKey))
-			keyHash := hex.EncodeToString(hash[:])
-			// TODO: look up keyHash in database
-			_ = keyHash
-			next(w, r)
+			http.Error(w, `{"error":"API key authentication not yet implemented"}`, http.StatusNotImplemented)
 			return
 		}
 
@@ -147,10 +142,15 @@ func rateLimitMiddleware(rl *RateLimiter, next http.HandlerFunc) http.HandlerFun
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigin := os.Getenv("AGOS_CORS_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "https://agos.dev"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -265,9 +265,15 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Validate against PostgreSQL users table
-	// For now, accept admin@agos.dev / admin
-	if req.Email != "admin@agos.dev" || req.Password != "admin" {
+	// Validate against configured admin credentials.
+	adminEmail := os.Getenv("AGOS_ADMIN_EMAIL")
+	adminPassword := os.Getenv("AGOS_ADMIN_PASSWORD")
+	if adminEmail == "" || adminPassword == "" {
+		log.Println("[AGOS] WARNING: AGOS_ADMIN_EMAIL / AGOS_ADMIN_PASSWORD not set — login disabled")
+		http.Error(w, `{"error":"login not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if req.Email != adminEmail || req.Password != adminPassword {
 		logAudit("unknown", "login", "auth", "denied")
 		http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
 		return

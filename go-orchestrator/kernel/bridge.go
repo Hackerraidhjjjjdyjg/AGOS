@@ -40,13 +40,19 @@ import (
 )
 
 var (
-	swapDir = filepath.Join(os.Getenv("HOME"), ".agos", "swap")
-	// MASTER_KEY for AES-256-GCM. In production, this would come from KMS/Vault.
-	masterKey = []byte("BRUTAL_AGOS_SOVEREIGN_KEY_32BYTE") 
+	swapDir   = filepath.Join(os.Getenv("HOME"), ".agos", "swap")
+	masterKey []byte
 )
 
 func init() {
 	os.MkdirAll(swapDir, 0700)
+	key := os.Getenv("AGOS_SWAP_ENCRYPTION_KEY")
+	if len(key) != 32 {
+		log.Println("[KERNEL] WARNING: AGOS_SWAP_ENCRYPTION_KEY must be exactly 32 bytes. Swap encryption disabled until set.")
+		masterKey = nil
+	} else {
+		masterKey = []byte(key)
+	}
 }
 
 // Init initializes the Rust kernel with a capacity and manifest.
@@ -194,6 +200,9 @@ func GetVersion() string {
 // --- Internal Security Helpers ---
 
 func encrypt(data []byte) ([]byte, error) {
+	if masterKey == nil {
+		return nil, fmt.Errorf("encryption key not configured (set AGOS_SWAP_ENCRYPTION_KEY)")
+	}
 	block, err := aes.NewCipher(masterKey)
 	if err != nil {
 		return nil, err
@@ -210,6 +219,9 @@ func encrypt(data []byte) ([]byte, error) {
 }
 
 func decrypt(data []byte) ([]byte, error) {
+	if masterKey == nil {
+		return nil, fmt.Errorf("encryption key not configured (set AGOS_SWAP_ENCRYPTION_KEY)")
+	}
 	block, err := aes.NewCipher(masterKey)
 	if err != nil {
 		return nil, err

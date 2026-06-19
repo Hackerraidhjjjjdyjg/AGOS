@@ -2,6 +2,8 @@
 package db
 
 import (
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -16,10 +18,28 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{
-		Host: "localhost", Port: 5432, User: "agos", Password: "agos_dev_2026",
-		DBName: "agos_db", SSLMode: "disable", MaxConns: 20,
+	port := 5432
+	if p := os.Getenv("AGOS_DB_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			port = v
+		}
 	}
+	return Config{
+		Host:     envOrDefault("AGOS_DB_HOST", "localhost"),
+		Port:     port,
+		User:     envOrDefault("AGOS_DB_USER", "agos"),
+		Password: os.Getenv("AGOS_DB_PASSWORD"),
+		DBName:   envOrDefault("AGOS_DB_NAME", "agos_db"),
+		SSLMode:  envOrDefault("AGOS_DB_SSLMODE", "disable"),
+		MaxConns: 20,
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 type User struct {
