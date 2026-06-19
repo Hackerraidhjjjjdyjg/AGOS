@@ -82,7 +82,7 @@ class MemoryAgent(BaseAgent):
     async def act(self, plan: dict) -> TaskResult:
         results, tool_calls = await execute_tool_plan(plan, tools=self.tools)
         output = format_tool_output("Memory Agent", tool_calls)
-        return TaskResult(success=len(tool_calls) > 0, output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
+        return TaskResult(success=any("result" in tc for tc in tool_calls), output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
 
     # ─── Tools ───────────────────────────────────
 

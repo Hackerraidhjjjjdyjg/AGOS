@@ -68,7 +68,7 @@ class CodeAgent(BaseAgent):
         results, tool_calls = await execute_tool_plan(plan, tools=self.tools)
         output = format_tool_output("Code Agent", tool_calls)
         return TaskResult(
-            success=len(tool_calls) > 0,
+            success=any("result" in tc for tc in tool_calls),
             output=output,
             tool_calls=tool_calls,
             tokens_used=self._tokens_used,

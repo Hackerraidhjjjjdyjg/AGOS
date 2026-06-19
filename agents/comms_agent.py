@@ -52,7 +52,7 @@ class CommsAgent(BaseAgent):
         output = format_tool_output("Communication Agent", tool_calls, include_details=False)
         if results:
             output += f"\n\n{results[-1]}"
-        return TaskResult(success=len(tool_calls) > 0, output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
+        return TaskResult(success=any("result" in tc for tc in tool_calls), output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
 
     async def _tool_draft_email(self, request: str, to: str = "", subject: str = "") -> str:
         """Draft a professional email using LLM."""

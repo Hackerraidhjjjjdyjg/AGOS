@@ -77,7 +77,7 @@ class SecurityAgent(BaseAgent):
             else:
                 self.audit_log.append({"tool": tc["tool"], "status": "error", "error": tc.get("error", "")})
         output = format_tool_output("Security Agent", tool_calls)
-        return TaskResult(success=len(tool_calls) > 0, output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
+        return TaskResult(success=any("result" in tc for tc in tool_calls), output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
 
     # ─── Tools ───────────────────────────────────
 

@@ -152,13 +152,11 @@ class SystemAgent(BaseAgent):
             return f"Opened {app_name} (Verified)"
         return f"Signaled {app_name} to open"
 
-    def _tool_get_active_apps(self) -> str:
-        return self._run_osascript(
+    async def _tool_get_active_apps(self) -> str:
+        return await self._run_osascript(
             'tell application "System Events" to get name of every process whose background only is false'
         )
 
-    def _tool_set_volume(self, level: int) -> str:
-        return self._run_osascript(f"set volume output volume {level}")
     async def _tool_set_volume(self, level: int) -> str:
         return await self._run_osascript(f"set volume output volume {level}")
 
