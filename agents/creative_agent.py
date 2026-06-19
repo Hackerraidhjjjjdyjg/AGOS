@@ -8,6 +8,7 @@ Tools: write_text, rewrite, translate, format_markdown, generate_outline
 import asyncio
 import json
 from agents.base import BaseAgent, AgentConfig, TaskResult
+from agents.tool_executor import execute_tool_plan, format_tool_output
 
 
 class CreativeAgent(BaseAgent):
@@ -49,31 +50,14 @@ class CreativeAgent(BaseAgent):
         return None
 
     async def act(self, plan: dict) -> TaskResult:
-        results = []
-        tool_calls = []
-
-        for step in plan.get("steps", []):
-            tool_name = step.get("tool")
-            args = step.get("args", {})
-
-            handler = getattr(self, f"_tool_{tool_name}", None)
-            if handler:
-                try:
-                    result = await handler(**args)
-                    results.append(result)
-                    tool_calls.append({"tool": tool_name, "result": str(result)[:500]})
-                except Exception as e:
-                    tool_calls.append({"tool": tool_name, "error": str(e)})
-
-        output = f"[Creative Agent] " + " | ".join(
-            f"{'✅' if 'result' in tc else '❌'} {tc['tool']}"
-            for tc in tool_calls
+        results, tool_calls = await execute_tool_plan(
+            plan, agent_instance=self, tool_prefix="_tool_"
         )
+        output = format_tool_output("Creative Agent", tool_calls, include_details=False)
         if results:
             output += f"\n\n{results[-1]}"
-
         return TaskResult(
-            success=len(tool_calls) > 0,
+            success=any("result" in tc for tc in tool_calls),
             output=output,
             tool_calls=tool_calls,
             tokens_used=self._tokens_used,
