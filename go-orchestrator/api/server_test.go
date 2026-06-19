@@ -7,7 +7,89 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
+
+// restoreGlobals snapshots the mutable package-level state the handler tests
+// touch (token store, agent registry, audit log, metrics counters, start time,
+// admin creds) and restores it via t.Cleanup, so tests stay hermetic regardless
+// of execution order or -count.
+func restoreGlobals(t *testing.T) {
+	t.Helper()
+
+	savedTokens := map[any]any{}
+	tokenStore.Range(func(k, v any) bool {
+		savedTokens[k] = v
+		return true
+	})
+
+	agentMu.Lock()
+	savedAgents := make(map[string]AgentInfo, len(agentRegistry))
+	for k, v := range agentRegistry {
+		savedAgents[k] = v
+	}
+	agentMu.Unlock()
+
+	auditMu.Lock()
+	savedAudit := append([]AuditEntry(nil), auditLog...)
+	auditMu.Unlock()
+
+	metrics.mu.Lock()
+	savedReq, savedSub := metrics.RequestCount, metrics.TasksSubmitted
+	savedComp, savedFail := metrics.TasksCompleted, metrics.TasksFailed
+	savedActive := metrics.ActiveAgents
+	metrics.mu.Unlock()
+
+	savedStart := startTime
+	savedEmail, savedHash := adminEmail, adminPasswordHash
+
+	t.Cleanup(func() {
+		tokenStore.Range(func(k, _ any) bool {
+			tokenStore.Delete(k)
+			return true
+		})
+		for k, v := range savedTokens {
+			tokenStore.Store(k, v)
+		}
+
+		agentMu.Lock()
+		for k := range agentRegistry {
+			delete(agentRegistry, k)
+		}
+		for k, v := range savedAgents {
+			agentRegistry[k] = v
+		}
+		agentMu.Unlock()
+
+		auditMu.Lock()
+		auditLog = savedAudit
+		auditMu.Unlock()
+
+		metrics.mu.Lock()
+		metrics.RequestCount, metrics.TasksSubmitted = savedReq, savedSub
+		metrics.TasksCompleted, metrics.TasksFailed = savedComp, savedFail
+		metrics.ActiveAgents = savedActive
+		metrics.mu.Unlock()
+
+		startTime = savedStart
+		adminEmail, adminPasswordHash = savedEmail, savedHash
+	})
+}
+
+// configureAdmin sets admin login credentials for the test; pair with
+// restoreGlobals(t) to undo the mutation afterwards.
+func configureAdmin(t *testing.T, email, password string) {
+	t.Helper()
+	// MinCost keeps the test fast (the handler verifies with bcrypt regardless
+	// of the cost baked into the hash).
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	adminEmail = email
+	adminPasswordHash = string(hash)
+}
 
 func TestRateLimiterAllow(t *testing.T) {
 	rl := NewRateLimiter(3)
@@ -27,6 +109,7 @@ func TestRateLimiterAllow(t *testing.T) {
 }
 
 func TestGenerateAndValidateToken(t *testing.T) {
+	restoreGlobals(t)
 	token := generateToken("u1", "u@example.com", "admin")
 	claims, ok := validateToken(token)
 	if !ok {
@@ -44,6 +127,7 @@ func TestValidateTokenUnknown(t *testing.T) {
 }
 
 func TestValidateTokenExpired(t *testing.T) {
+	restoreGlobals(t)
 	tokenStore.Store("expired-token", Claims{
 		UserID: "u1",
 		Exp:    time.Now().Add(-time.Hour).Unix(),
@@ -57,6 +141,7 @@ func TestValidateTokenExpired(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
+	restoreGlobals(t)
 	startTime = time.Now()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -76,7 +161,10 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleLoginSuccess(t *testing.T) {
-	body := strings.NewReader(`{"email":"admin@agos.dev","password":"admin"}`)
+	restoreGlobals(t)
+	configureAdmin(t, "admin@agos.dev", "s3cret-pass")
+
+	body := strings.NewReader(`{"email":"admin@agos.dev","password":"s3cret-pass"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
 	rec := httptest.NewRecorder()
 
@@ -95,7 +183,10 @@ func TestHandleLoginSuccess(t *testing.T) {
 }
 
 func TestHandleLoginBadCredentials(t *testing.T) {
-	body := strings.NewReader(`{"email":"x@x.com","password":"wrong"}`)
+	restoreGlobals(t)
+	configureAdmin(t, "admin@agos.dev", "s3cret-pass")
+
+	body := strings.NewReader(`{"email":"admin@agos.dev","password":"wrong"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
 	rec := httptest.NewRecorder()
 
@@ -103,6 +194,21 @@ func TestHandleLoginBadCredentials(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestHandleLoginNotConfigured(t *testing.T) {
+	restoreGlobals(t)
+	adminEmail, adminPasswordHash = "", ""
+
+	body := strings.NewReader(`{"email":"admin@agos.dev","password":"whatever"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	rec := httptest.NewRecorder()
+
+	handleLogin(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 when admin login is unconfigured", rec.Code)
 	}
 }
 
@@ -134,6 +240,7 @@ func TestAuthMiddlewareMissingHeader(t *testing.T) {
 }
 
 func TestAuthMiddlewareValidToken(t *testing.T) {
+	restoreGlobals(t)
 	token := generateToken("u42", "u@example.com", "user")
 	var gotUser string
 	h := authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +349,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 }
 
 func TestHandleSubmitTask(t *testing.T) {
+	restoreGlobals(t)
 	body := strings.NewReader(`{"intent":"do x","priority":2,"agent_id":"system"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 	rec := httptest.NewRecorder()
@@ -261,6 +369,7 @@ func TestHandleSubmitTask(t *testing.T) {
 }
 
 func TestHandleSubmitTaskBadBody(t *testing.T) {
+	restoreGlobals(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(`{bad`))
 	rec := httptest.NewRecorder()
 	handleSubmitTask(rec, req)
@@ -270,6 +379,7 @@ func TestHandleSubmitTaskBadBody(t *testing.T) {
 }
 
 func TestHandleRegisterAndListAgents(t *testing.T) {
+	restoreGlobals(t)
 	body := strings.NewReader(`{"name":"Test Agent","model":"m","priority":1,"capabilities":["x"]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", body)
 	rec := httptest.NewRecorder()
@@ -299,6 +409,7 @@ func TestHandleRegisterAndListAgents(t *testing.T) {
 }
 
 func TestHandleRegisterAgentBadBody(t *testing.T) {
+	restoreGlobals(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(`{bad`))
 	rec := httptest.NewRecorder()
 	handleRegisterAgent(rec, req)
@@ -308,6 +419,7 @@ func TestHandleRegisterAgentBadBody(t *testing.T) {
 }
 
 func TestHandleCreateAPIKey(t *testing.T) {
+	restoreGlobals(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", nil)
 	rec := httptest.NewRecorder()
 	handleCreateAPIKey(rec, req)
@@ -326,6 +438,7 @@ func TestHandleCreateAPIKey(t *testing.T) {
 }
 
 func TestHandleMetrics(t *testing.T) {
+	restoreGlobals(t)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
 	handleMetrics(rec, req)
@@ -339,6 +452,7 @@ func TestHandleMetrics(t *testing.T) {
 }
 
 func TestHandleAuditLog(t *testing.T) {
+	restoreGlobals(t)
 	logAudit("u1", "act", "res", "allowed")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit", nil)
@@ -357,6 +471,7 @@ func TestHandleAuditLog(t *testing.T) {
 }
 
 func TestMetricsInc(t *testing.T) {
+	restoreGlobals(t)
 	before := metrics.RequestCount
 	metricsInc("requests")
 	if metrics.RequestCount != before+1 {
@@ -371,6 +486,7 @@ func TestMetricsInc(t *testing.T) {
 }
 
 func TestNewServer(t *testing.T) {
+	restoreGlobals(t)
 	srv := NewServer(9999)
 	if srv.Addr != ":9999" {
 		t.Errorf("Addr = %q, want :9999", srv.Addr)

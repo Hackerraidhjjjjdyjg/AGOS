@@ -2,6 +2,7 @@
 package db
 
 import (
+	"os"
 	"time"
 )
 
@@ -15,10 +16,25 @@ type Config struct {
 	MaxConns int
 }
 
+func getenvDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// DefaultConfig builds the Postgres config from the environment. The password
+// is read from AGOS_DB_PASSWORD (falling back to POSTGRES_PASSWORD) and is
+// never hardcoded; everything else has a sensible local-dev default.
 func DefaultConfig() Config {
 	return Config{
-		Host: "localhost", Port: 5432, User: "agos", Password: "agos_dev_2026",
-		DBName: "agos_db", SSLMode: "disable", MaxConns: 20,
+		Host:     getenvDefault("AGOS_DB_HOST", "localhost"),
+		Port:     5432,
+		User:     getenvDefault("AGOS_DB_USER", "agos"),
+		Password: getenvDefault("AGOS_DB_PASSWORD", os.Getenv("POSTGRES_PASSWORD")),
+		DBName:   getenvDefault("AGOS_DB_NAME", "agos_db"),
+		SSLMode:  getenvDefault("AGOS_DB_SSLMODE", "disable"),
+		MaxConns: 20,
 	}
 }
 

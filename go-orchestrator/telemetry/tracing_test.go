@@ -88,8 +88,12 @@ func TestSetError(t *testing.T) {
 
 func TestGenerateID(t *testing.T) {
 	id := generateID()
-	if len(id) != 8 {
-		t.Errorf("generateID length = %d, want 8", len(id))
+	// 8 random bytes hex-encoded = 16 characters.
+	if len(id) != 16 {
+		t.Errorf("generateID length = %d, want 16", len(id))
+	}
+	if generateID() == generateID() {
+		t.Error("generateID should not return identical IDs")
 	}
 }
 

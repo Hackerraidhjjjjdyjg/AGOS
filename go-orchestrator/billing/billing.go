@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -40,8 +41,9 @@ var Plans = map[string]Plan{
 	},
 }
 
-// UsageTracker tracks token usage per org.
+// UsageTracker tracks token usage per org. It is safe for concurrent use.
 type UsageTracker struct {
+	mu    sync.RWMutex
 	usage map[string]int64 // orgID -> tokens used today
 }
 
@@ -51,18 +53,25 @@ func NewUsageTracker() *UsageTracker {
 
 // RecordUsage records token usage.
 func (ut *UsageTracker) RecordUsage(orgID string, tokens int64, model string) {
+	ut.mu.Lock()
 	ut.usage[orgID] += tokens
-	log.Printf("[BILLING] org=%s tokens=%d model=%s total=%d", orgID, tokens, model, ut.usage[orgID])
+	total := ut.usage[orgID]
+	ut.mu.Unlock()
+	log.Printf("[BILLING] org=%s tokens=%d model=%s total=%d", orgID, tokens, model, total)
 	// TODO: Write to usage_records table in PostgreSQL
 }
 
 // CheckQuota returns true if org is within their token limit.
 func (ut *UsageTracker) CheckQuota(orgID string, plan Plan) bool {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
 	return ut.usage[orgID] < plan.TokenLimit
 }
 
 // GetUsage returns current usage for an org.
 func (ut *UsageTracker) GetUsage(orgID string) int64 {
+	ut.mu.RLock()
+	defer ut.mu.RUnlock()
 	return ut.usage[orgID]
 }
 

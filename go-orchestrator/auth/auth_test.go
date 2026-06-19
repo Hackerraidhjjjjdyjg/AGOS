@@ -53,19 +53,26 @@ func TestValidateAPIKeyHash(t *testing.T) {
 	}
 }
 
-func TestHashPassword(t *testing.T) {
+func TestHashPasswordAndVerify(t *testing.T) {
 	a := NewAuthService("secret")
-	h1 := a.HashPassword("hunter2")
-	h2 := a.HashPassword("hunter2")
-	if h1 != h2 {
-		t.Error("hashing is not deterministic")
+
+	h1, err := a.HashPassword("hunter2")
+	if err != nil {
+		t.Fatalf("HashPassword error: %v", err)
 	}
-	if h1 == a.HashPassword("different") {
-		t.Error("different passwords produced the same hash")
+	h2, err := a.HashPassword("hunter2")
+	if err != nil {
+		t.Fatalf("HashPassword error: %v", err)
 	}
-	want := sha256.Sum256([]byte("hunter2"))
-	if h1 != hex.EncodeToString(want[:]) {
-		t.Error("HashPassword does not match sha256")
+	// bcrypt salts every hash, so the same password yields distinct hashes.
+	if h1 == h2 {
+		t.Error("bcrypt hashes of the same password should differ (per-hash salt)")
+	}
+	if !a.VerifyPassword("hunter2", h1) {
+		t.Error("correct password should verify against its hash")
+	}
+	if a.VerifyPassword("different", h1) {
+		t.Error("wrong password should not verify")
 	}
 }
 
