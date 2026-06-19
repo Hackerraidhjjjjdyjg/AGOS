@@ -102,8 +102,20 @@ func (h *WSHub) Broadcast(event WSEvent) {
 }
 
 // Handler returns an http.HandlerFunc that upgrades requests to WebSocket.
+// A valid token must be supplied as a query parameter (?token=<jwt>) and is
+// validated before the connection is upgraded.
 func (h *WSHub) Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, `{"error":"missing token query parameter"}`, http.StatusUnauthorized)
+			return
+		}
+		if _, valid := validateToken(token); !valid {
+			http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+			return
+		}
+
 		conn, err := h.upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("[WS] Upgrade failed: %v", err)

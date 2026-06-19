@@ -2,11 +2,18 @@
 package billing
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,14 +86,29 @@ func (ut *UsageTracker) GetUsage(orgID string) int64 {
 func StripeWebhookHandler(w http.ResponseWriter, r *http.Request) {
 	stripeSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	if stripeSecret == "" {
-		log.Println("[BILLING] WARNING: STRIPE_WEBHOOK_SECRET not set")
+		log.Println("[BILLING] STRIPE_WEBHOOK_SECRET not set — rejecting webhook")
+		http.Error(w, "webhook not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+
+	sigHeader := r.Header.Get("Stripe-Signature")
+	if !verifyStripeSignature(body, sigHeader, stripeSecret) {
+		log.Println("[BILLING] Webhook signature verification failed")
+		http.Error(w, "invalid signature", http.StatusForbidden)
+		return
 	}
 
 	var event struct {
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	if err := json.Unmarshal(body, &event); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
@@ -125,4 +147,52 @@ func CreateCheckoutSession(planID string, customerEmail string) (string, error) 
 
 	_ = plan
 	return fmt.Sprintf("https://checkout.stripe.com/agos_%s_%d", planID, time.Now().Unix()), nil
+}
+
+// verifyStripeSignature verifies the Stripe-Signature header (v1 scheme).
+func verifyStripeSignature(payload []byte, sigHeader, secret string) bool {
+	if sigHeader == "" {
+		return false
+	}
+
+	var timestamp string
+	var signatures []string
+	for _, part := range strings.Split(sigHeader, ",") {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch kv[0] {
+		case "t":
+			timestamp = kv[1]
+		case "v1":
+			signatures = append(signatures, kv[1])
+		}
+	}
+
+	if timestamp == "" || len(signatures) == 0 {
+		return false
+	}
+
+	// Reject timestamps older than 5 minutes to prevent replay attacks
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	if math.Abs(float64(time.Now().Unix()-ts)) > 300 {
+		return false
+	}
+
+	// Compute expected signature: HMAC-SHA256(secret, "timestamp.payload")
+	signed := fmt.Sprintf("%s.%s", timestamp, string(payload))
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signed))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	for _, sig := range signatures {
+		if hmac.Equal([]byte(expected), []byte(sig)) {
+			return true
+		}
+	}
+	return false
 }

@@ -3,6 +3,7 @@ package db
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -27,9 +28,15 @@ func getenvDefault(key, fallback string) string {
 // is read from AGOS_DB_PASSWORD (falling back to POSTGRES_PASSWORD) and is
 // never hardcoded; everything else has a sensible local-dev default.
 func DefaultConfig() Config {
+	port := 5432
+	if p := os.Getenv("AGOS_DB_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			port = v
+		}
+	}
 	return Config{
 		Host:     getenvDefault("AGOS_DB_HOST", "localhost"),
-		Port:     5432,
+		Port:     port,
 		User:     getenvDefault("AGOS_DB_USER", "agos"),
 		Password: getenvDefault("AGOS_DB_PASSWORD", os.Getenv("POSTGRES_PASSWORD")),
 		DBName:   getenvDefault("AGOS_DB_NAME", "agos_db"),

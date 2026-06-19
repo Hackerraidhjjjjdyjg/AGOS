@@ -11,6 +11,7 @@ import io
 import json
 import math
 import os
+import re
 import sqlite3
 import tempfile
 from collections import Counter
@@ -65,11 +66,21 @@ class DataAgent(BaseAgent):
 
     # ─── Tools ───────────────────────────────────
 
+    # SQL statements that modify data or schema
+    _DANGEROUS_SQL_PATTERNS = re.compile(
+        r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|PRAGMA|LOAD_EXTENSION)\b",
+        re.IGNORECASE,
+    )
+
     def _query_sqlite(self, query: str, db_path: str = "") -> str:
-        """Execute SQL on AGOS database or in-memory."""
+        """Execute read-only SQL on AGOS database or in-memory."""
+        if self._DANGEROUS_SQL_PATTERNS.search(query):
+            return "Rejected: only SELECT / read-only queries are allowed"
+
         db = db_path or ":memory:"
         try:
             conn = sqlite3.connect(db)
+            conn.execute("PRAGMA query_only = ON")
             cursor = conn.execute(query)
             cols = [d[0] for d in cursor.description] if cursor.description else []
             rows = cursor.fetchall()

@@ -5,7 +5,6 @@ package api
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -111,14 +110,9 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 
-		// API Key auth
+		// API Key auth — requires database lookup (not yet implemented)
 		if strings.HasPrefix(auth, "Bearer agos_sk_") {
-			apiKey := strings.TrimPrefix(auth, "Bearer ")
-			hash := sha256.Sum256([]byte(apiKey))
-			keyHash := hex.EncodeToString(hash[:])
-			// TODO: look up keyHash in database
-			_ = keyHash
-			next(w, r)
+			http.Error(w, `{"error":"API key authentication not yet implemented"}`, http.StatusNotImplemented)
 			return
 		}
 
@@ -157,10 +151,15 @@ func rateLimitMiddleware(rl *RateLimiter, next http.HandlerFunc) http.HandlerFun
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigin := os.Getenv("AGOS_CORS_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "https://agos.dev"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -398,18 +397,10 @@ func handleAuditLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	b := make([]byte, 32)
-	rand.Read(b)
-	plainKey := fmt.Sprintf("agos_sk_%s", hex.EncodeToString(b))
-	prefix := plainKey[:12]
-
-	logAudit(r.Header.Get("X-User-ID"), "create_api_key", prefix, "allowed")
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"key":        plainKey,
-		"key_prefix": prefix,
-		"warning":    "Store this key securely. It will not be shown again.",
-	})
+	// API key authentication is not yet implemented (see authMiddleware), so
+	// issuing keys would only produce credentials that are guaranteed to be
+	// rejected. Disable key creation until the auth path is backed by storage.
+	http.Error(w, `{"error":"API key authentication not yet implemented"}`, http.StatusNotImplemented)
 }
 
 // ─── Server ─────────────────────────────────────────────────────────────

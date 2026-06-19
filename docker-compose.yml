@@ -11,7 +11,7 @@ services:
     environment:
       POSTGRES_DB: agos_db
       POSTGRES_USER: agos
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agos_dev_2026}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:
@@ -30,11 +30,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-agos_redis_2026}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-agos_redis_2026}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -62,10 +62,10 @@ services:
       - "50051:50051"   # gRPC
       - "8765:8765"     # HTTP/Telemetry
     environment:
-      POSTGRES_URL: postgres://agos:${POSTGRES_PASSWORD:-agos_dev_2026}@postgres:5432/agos_db?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD:-agos_redis_2026}@redis:6379/0
+      POSTGRES_URL: postgres://agos:${POSTGRES_PASSWORD}@postgres:5432/agos_db?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:-agos_jwt_secret_2026}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
     depends_on:
@@ -84,8 +84,8 @@ services:
     container_name: agos-agents
     restart: unless-stopped
     environment:
-      POSTGRES_URL: postgres://agos:${POSTGRES_PASSWORD:-agos_dev_2026}@postgres:5432/agos_db?sslmode=disable
-      REDIS_URL: redis://:${REDIS_PASSWORD:-agos_redis_2026}@redis:6379/0
+      POSTGRES_URL: postgres://agos:${POSTGRES_PASSWORD}@postgres:5432/agos_db?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       NATS_URL: nats://nats:4222
       OLLAMA_URL: http://host.docker.internal:11434
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -114,7 +114,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-agos_grafana_2026}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafanadata:/var/lib/grafana
