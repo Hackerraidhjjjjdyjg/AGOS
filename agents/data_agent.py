@@ -15,6 +15,7 @@ import sqlite3
 import tempfile
 from collections import Counter
 from agents.base import BaseAgent, AgentConfig, TaskResult
+from agents.tool_executor import execute_tool_plan, format_tool_output
 
 
 class DataAgent(BaseAgent):
@@ -58,22 +59,8 @@ class DataAgent(BaseAgent):
         return None
 
     async def act(self, plan: dict) -> TaskResult:
-        results, tool_calls = [], []
-        for step in plan.get("steps", []):
-            tool_name = step.get("tool")
-            args = step.get("args", {})
-            if tool_name in self.tools:
-                try:
-                    result = await asyncio.to_thread(self.tools[tool_name], **args)
-                    results.append(result)
-                    tool_calls.append({"tool": tool_name, "result": str(result)[:500]})
-                except Exception as e:
-                    tool_calls.append({"tool": tool_name, "error": str(e)})
-
-        output = f"[Data Agent] " + " | ".join(
-            f"{'✅' if 'result' in tc else '❌'} {tc['tool']}: {tc.get('result', tc.get('error', ''))[:200]}"
-            for tc in tool_calls
-        )
+        results, tool_calls = await execute_tool_plan(plan, tools=self.tools)
+        output = format_tool_output("Data Agent", tool_calls)
         return TaskResult(success=len(tool_calls) > 0, output=output, tool_calls=tool_calls, tokens_used=self._tokens_used)
 
     # ─── Tools ───────────────────────────────────

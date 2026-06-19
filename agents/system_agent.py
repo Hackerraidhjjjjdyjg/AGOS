@@ -10,6 +10,7 @@ import subprocess
 from typing import Optional
 
 from .base import AgentConfig, BaseAgent, TaskResult
+from .tool_executor import execute_tool_plan
 
 logger = logging.getLogger("agos.system_agent")
 
@@ -121,48 +122,21 @@ class SystemAgent(BaseAgent):
 
     async def act(self, plan: dict) -> TaskResult:
         """Execute the planned tool calls."""
-        steps = plan.get("steps", [])
+        results, tool_calls = await execute_tool_plan(
+            plan, agent_instance=self, tool_prefix="_tool_"
+        )
         outputs = []
-        tool_calls = []
-
-        for step in steps:
-            tool = step.get("tool", "")
-            args = step.get("args", {})
-
-            try:
-                # Use await because tool methods might now be async
-                method = getattr(self, f"_tool_{tool}", None)
-                if method is None:
-                    raise NotImplementedError(f"Tool '{tool}' not implemented")
-                
-                import inspect
-                if inspect.iscoroutinefunction(method):
-                    result = await method(**args)
-                else:
-                    result = method(**args)
-                
-                outputs.append(f"✅ {tool}: {result}")
-                tool_calls.append({"tool": tool, "args": args, "result": result})
-            except Exception as e:
-                outputs.append(f"❌ {tool}: {e}")
-                tool_calls.append({"tool": tool, "args": args, "error": str(e)})
-
+        for tc in tool_calls:
+            if "result" in tc:
+                outputs.append(f"✅ {tc['tool']}: {tc['result']}")
+            else:
+                outputs.append(f"❌ {tc['tool']}: {tc.get('error', '')}")
         return TaskResult(
             success=all("✅" in o for o in outputs),
             output="\n".join(outputs),
             tool_calls=tool_calls,
             tokens_used=self.tokens_used,
         )
-
-    def _execute_tool(self, tool: str, args: dict) -> str:
-        """Execute a single tool call."""
-        if tool not in self.config.capabilities:
-            raise PermissionError(f"Tool '{tool}' not in capabilities")
-
-        method = getattr(self, f"_tool_{tool}", None)
-        if method is None:
-            raise NotImplementedError(f"Tool '{tool}' not implemented")
-        return method(**args)
 
     # --- Tool Implementations ---
 
