@@ -382,18 +382,10 @@ func handleAuditLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	b := make([]byte, 32)
-	rand.Read(b)
-	plainKey := fmt.Sprintf("agos_sk_%s", hex.EncodeToString(b))
-	prefix := plainKey[:12]
-
-	logAudit(r.Header.Get("X-User-ID"), "create_api_key", prefix, "allowed")
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"key":        plainKey,
-		"key_prefix": prefix,
-		"warning":    "Store this key securely. It will not be shown again.",
-	})
+	// API key authentication is not yet implemented (see authMiddleware), so
+	// issuing keys would only produce credentials that are guaranteed to be
+	// rejected. Disable key creation until the auth path is backed by storage.
+	http.Error(w, `{"error":"API key authentication not yet implemented"}`, http.StatusNotImplemented)
 }
 
 // ─── Server ─────────────────────────────────────────────────────────────
