@@ -13,7 +13,7 @@ def test_agent_config_defaults():
     assert c.priority == 2
     assert c.token_budget == 4096
     assert c.capabilities == []
-    assert c.groq_url.startswith("https://api.groq.com")
+    assert c.groq_url == "https://api.groq.com/openai/v1/chat/completions"
 
 
 def test_task_result_defaults():

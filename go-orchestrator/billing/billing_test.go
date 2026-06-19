@@ -3,6 +3,7 @@ package billing
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -74,12 +75,19 @@ func TestCreateCheckoutSessionUnknownPlan(t *testing.T) {
 
 func TestCreateCheckoutSessionSuccess(t *testing.T) {
 	t.Setenv("STRIPE_SECRET_KEY", "sk_test_123")
-	url, err := CreateCheckoutSession("pro", "u@example.com")
+	raw, err := CreateCheckoutSession("pro", "u@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasPrefix(url, "https://checkout.stripe.com/agos_pro_") {
-		t.Errorf("url = %q, want checkout.stripe.com/agos_pro_ prefix", url)
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("returned url is not parseable: %v", err)
+	}
+	if u.Scheme != "https" || u.Host != "checkout.stripe.com" {
+		t.Errorf("url = %q, want https://checkout.stripe.com host", raw)
+	}
+	if !strings.HasPrefix(u.Path, "/agos_pro_") {
+		t.Errorf("url path = %q, want /agos_pro_ prefix", u.Path)
 	}
 }
 
