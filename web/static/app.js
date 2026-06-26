@@ -5,6 +5,14 @@ const API = window.location.origin;
 let taskCount = 0;
 let tokenCount = 0;
 
+// DOM Cache to avoid repeated querying
+const dockItemsMap = new Map();
+document.querySelectorAll('.dock-item').forEach(d => {
+    if (d.dataset.app) dockItemsMap.set(d.dataset.app, d);
+});
+
+let currentlyFocusedWindow = document.querySelector('.window.focused');
+
 // ─── Window Management ──────────────────────────
 
 let topZ = 100;
@@ -15,17 +23,15 @@ function openApp(appName) {
     win.classList.remove('hidden', 'minimized');
     focusWindow(win);
     // Mark dock active
-    document.querySelectorAll('.dock-item').forEach(d => {
-        if (d.dataset.app === appName) d.classList.add('active');
-    });
+    const dockItem = dockItemsMap.get(appName);
+    if (dockItem) dockItem.classList.add('active');
 }
 
 function closeApp(win) {
     win.classList.add('hidden');
     const appName = win.id.replace('win-', '');
-    document.querySelectorAll('.dock-item').forEach(d => {
-        if (d.dataset.app === appName) d.classList.remove('active');
-    });
+    const dockItem = dockItemsMap.get(appName);
+    if (dockItem) dockItem.classList.remove('active');
 }
 
 function minimizeApp(win) {
@@ -54,8 +60,11 @@ function maximizeApp(win) {
 }
 
 function focusWindow(win) {
-    document.querySelectorAll('.window').forEach(w => w.classList.remove('focused'));
+    if (currentlyFocusedWindow) {
+        currentlyFocusedWindow.classList.remove('focused');
+    }
     win.classList.add('focused');
+    currentlyFocusedWindow = win;
     topZ++;
     win.style.zIndex = topZ;
 }
