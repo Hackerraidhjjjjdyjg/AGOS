@@ -5,8 +5,6 @@ Creative Agent — Content creation, rewriting, translation, formatting.
 Tools: write_text, rewrite, translate, format_markdown, generate_outline
 """
 
-import asyncio
-import json
 from agents.base import BaseAgent, AgentConfig, TaskResult
 from agents.tool_executor import execute_tool_plan, format_tool_output
 
