@@ -8,7 +8,7 @@ Tools: draft_email, summarize_thread, schedule_event, format_message
 import asyncio
 import json
 import subprocess
-from agents.base import BaseAgent, AgentConfig, TaskResult
+from agents.base import BaseAgent, AgentConfig, TaskResult, escape_applescript_string
 
 
 class CommsAgent(BaseAgent):
@@ -93,10 +93,12 @@ class CommsAgent(BaseAgent):
         try:
             info = json.loads(event_info)
             # Create via AppleScript
+            e_title = escape_applescript_string(info.get('title', 'Meeting'))
+            e_date = escape_applescript_string(info.get('date', 'tomorrow'))
             script = f'''
             tell application "Calendar"
                 tell calendar "Home"
-                    make new event with properties {{summary:"{info.get('title', 'Meeting')}", start date:date "{info.get('date', 'tomorrow')}"}}
+                    make new event with properties {{summary:"{e_title}", start date:date "{e_date}"}}
                 end tell
             end tell
             '''

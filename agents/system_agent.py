@@ -9,7 +9,7 @@ import logging
 import subprocess
 from typing import Optional
 
-from .base import AgentConfig, BaseAgent, TaskResult
+from .base import AgentConfig, BaseAgent, TaskResult, escape_applescript_string
 
 logger = logging.getLogger("agos.system_agent")
 
@@ -168,10 +168,11 @@ class SystemAgent(BaseAgent):
 
     async def _tool_open_app(self, app_name: str) -> str:
         # PRINCIPAL ENGINEERING: Stability delay to handle OS context-switching (Section 1)
+        e_app_name = escape_applescript_string(app_name)
         script = f'''
-        tell application "{app_name}" to activate
+        tell application "{e_app_name}" to activate
         delay 0.5
-        tell application "System Events" to return exists (process "{app_name}")
+        tell application "System Events" to return exists (process "{e_app_name}")
         '''
         res = await self._run_osascript(script)
         if res == "true":
@@ -189,12 +190,12 @@ class SystemAgent(BaseAgent):
         return await self._run_osascript(f"set volume output volume {level}")
 
     async def _tool_say(self, text: str) -> str:
-        return await self._run_osascript(f'say "{text}"')
+        return await self._run_osascript(f'say "{escape_applescript_string(text)}"')
 
     async def _tool_search_web(self, query: str) -> str:
         import urllib.parse
         url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
-        return await self._run_osascript(f'tell application "Safari" to open location "{url}"')
+        return await self._run_osascript(f'tell application "Safari" to open location "{escape_applescript_string(url)}"')
 
     async def _tool_screenshot(self, output_path: str = "/tmp/agos_screenshot.png") -> str:
         # screencapture is a shell command
@@ -213,8 +214,10 @@ class SystemAgent(BaseAgent):
         return json.dumps(info)
 
     async def _tool_send_notification(self, title: str, message: str) -> str:
+        e_msg = escape_applescript_string(message)
+        e_title = escape_applescript_string(title)
         return await self._run_osascript(
-            f'display notification "{message}" with title "{title}"'
+            f'display notification "{e_msg}" with title "{e_title}"'
         )
 
     async def _tool_get_clipboard(self) -> str:

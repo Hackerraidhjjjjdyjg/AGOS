@@ -44,6 +44,13 @@ class TaskResult:
     error: Optional[str] = None
 
 
+def escape_applescript_string(text: str) -> str:
+    """Escapes a string for use inside AppleScript double quotes."""
+    if not text:
+        return ""
+    return text.replace('\\', '\\\\').replace('"', '\\"')
+
+
 class BaseAgent(ABC):
     """
     Abstract base class for all AGOS agents.
